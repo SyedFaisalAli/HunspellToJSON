@@ -6,6 +6,8 @@ Reads and Parse Hunspell Dictionary formats (.aff and .dic) and converts it to J
 ## Intro
 There are many Hunspell parsers for different languages. All of them read the .dic and .aff file and generate a hash table of words for use in a spell checker or other applications. The idea behind this project is to be able to generate a JSON formatted list of words with derivatives for use in primarily JavaScript, NodeJS, or any other JSON parser.
 
+Right now, it will only deal with words and its derivatives.
+
 ### Pros
 * Outputted to JSON and for some languages, it can be used immediately like in JavaScript to check if a word exists in the dictionary.
 
@@ -52,3 +54,7 @@ The only word prefix here is *re*. Since no + or - is found at the beginning, it
 
 ### Key
 This option is only applicable if you are using the add-sub format. It further removes some redundancy by putting all prefixes and suffixes in a key array. Each word will then have an array of indexes to lookup in the keys for the add-sub to apply. If you are using add-sub, it is recommended to use the option -k as it doesn't nearly affect the parsing since it is a simple lookup. unspellToJSON
+
+## TODO
+* Add option to exclude a list of words from a file
+* Add compound list
