@@ -158,16 +158,23 @@ class DICT:
 			oFile.write(tab + '"key": ["' + '","'.join(self.aff.rules["keys"]) + '"],' + newLine)
 
 		oFile.write(tab + '"words": {' + newLine)
+
+		count = 0
+		numWords = len(self.dict["words"])
 		for word in self.dict["words"]:
+			comma = ',' if count != (numWords - 1) else ''
+
 			# Avoid unecessary quotations if there is no derivitives of a base word
 			if len(self.dict["words"][word]) == 0:
-				oFile.write(tab + tab + '"' + word + '":[' + '","'.join(self.dict["words"][word]) + '],' + newLine)
+				oFile.write(tab + tab + '"' + word + '":[' + '","'.join(self.dict["words"][word]) + ']' + comma + newLine)
 			elif self.key:	# No need to wrap indexes with quotes
-				oFile.write(tab + tab + '"' + word + '":[' + ','.join(self.dict["words"][word]) + '],' + newLine)
+				oFile.write(tab + tab + '"' + word + '":[' + ','.join(self.dict["words"][word]) + ']' + comma + newLine)
 			else:
-				oFile.write(tab + tab + '"' + word + '":["' + '","'.join(self.dict["words"][word]) + '"],' + newLine)
+				oFile.write(tab + tab + '"' + word + '":["' + '","'.join(self.dict["words"][word]) + '"]' + comma + newLine)
+
+			count += 1
 		oFile.write(tab + "}" + newLine)
-		oFile.write("\b}" + newLine)
+		oFile.write("}" + newLine)
 
 	def __generateDict(self):
 		compounds = self.aff.rules["compoundRules"]
