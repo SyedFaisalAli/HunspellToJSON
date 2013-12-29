@@ -1,5 +1,5 @@
 #!/usr/bin/python3.3
-import re, argparse
+import re, argparse, sys
 
 def convertFileToList(file):
 	lines = []
@@ -19,7 +19,7 @@ class AffixRule:
 	def __init__(self, numRules):
 		self.rules = []
 		self.numRules = numRules
-		self.currentRule = 0
+		self.currentRule = -1
 
 	def add(self, dic):
 		self.rules.append(dic)
@@ -30,13 +30,13 @@ class AffixRule:
 		return False
 
 	def next(self):
-		rule = self.rules[self.currentRule]
 		self.currentRule += 1
+		rule = self.rules[self.currentRule]
 
 		return rule
 
-	def reset():
-		self.currentRule = 0
+	def reset(self):
+		self.currentRule = -1
 
 class AFF:
 	
@@ -44,13 +44,15 @@ class AFF:
 		self.rules = {}
 
 		self.rules["affixRules"] = {}
-		self.rules["numAffixRules"] = {}
 		self.rules["repTable"] = {}
 		self.rules["compoundRules"] = []
 		self.rules["other"] = {}
+
+		# List of affixes to add and characters to remove in add sub format
+		self.rules["keys"] = []
 		self.noSuggestFlag = None
 
-		# Remove comments and blank lines, cache into a list
+		# Remove comments and blank lines, transfer into a list
 		self.lines = convertFileToList(affFile)
 		self.__addRules()
 
@@ -66,10 +68,8 @@ class AFF:
 			# Get code
 			rFlag = parts[1]
 
-
 			# PREFIX or SUFFIX Rules
 			if rOpt == "PFX" or rOpt == "SFX":
-
 				# Is combinable with other suffixes/prefixes?
 				rCombine = False
 				if parts[2] == 'Y':
@@ -77,9 +77,6 @@ class AFF:
 
 				# Get # of affix entries
 				rNumEntries = int(parts[3])
-
-				if not rFlag in self.rules["numAffixRules"]:
-					self.rules["numAffixRules"][rFlag] = rNumEntries
 
 				for j in range(rNumEntries):
 					# Get entry
@@ -89,24 +86,42 @@ class AFF:
 					# Get characters to strip of a word
 					stripChars = entryParts[2]
 
-					# No characters to strip
-					if stripChars == "0":
-						stripChars = None
+					# Add-Sub key
+					key = ''
 
 					# Affix (Prefix|Suffix)
 					affix = entryParts[3]
+
+					# No characters to strip
+					if stripChars == "0":
+						stripChars = ''
+					elif rOpt == "PFX":
+						key += stripChars + '-'
+					elif rOpt == "SFX":
+						key += '-' + stripChars
+
+					if rOpt == "PFX":
+						key += affix + '+'
+					elif rOpt == "SFX":
+						key += '+' + affix
+
+					if key not in self.rules["keys"]:
+						self.rules["keys"].append(key)
 
 					# Regex (Condition)
 					regex = entryParts[4]
 
 					# Check if rFlag doesn't eist
-					if (rFlag + str(j)) not in self.rules["affixRules"]:
+					if rFlag not in self.rules["affixRules"]:
 						self.rules["affixRules"][rFlag] = AffixRule(rNumEntries)
 
 					self.rules["affixRules"][rFlag].add({"opt": rOpt, "combine": rCombine, "stripChars": stripChars, "affix": affix, "regex": regex})
 
 			elif rOpt == "NOSUGGEST":
-				self.noSuggestFlag = rFlag
+				if rFlag not in self.rules["affixRules"]:
+					self.rules["affixRules"][rFlag]  = AffixRule(1)
+
+				self.rules["affixRules"][rFlag].add({"opt": rOpt})
 			elif rOpt == "COMPOUNDRULE":
 				numEntries = int(parts[1])
 
@@ -140,7 +155,7 @@ class DICT:
 
 		# Generate affix keys if set
 		if self.key:
-			oFile.write(tab + '"key": ["' + '","'.join(self.keys) + '"],' + newLine)
+			oFile.write(tab + '"key": ["' + '","'.join(self.aff.rules["keys"]) + '"],' + newLine)
 
 		oFile.write(tab + '"words": {' + newLine)
 		for word in self.dict["words"]:
@@ -166,7 +181,16 @@ class DICT:
 			# Add flag as dictionary key
 			for flag in flags: compoundFlags[flag] = []
 
-		for line in self.lines:
+		# Progress Bar
+		progress = len(self.lines) / 10
+
+		for i in range(len(self.lines)):
+			line = self.lines[i]
+
+			if i % progress == 0:
+				print('\b=>', end='')
+				sys.stdout.flush()
+
 			# Split
 			entries = line.split('/')
 			word = entries[0]
@@ -186,45 +210,41 @@ class DICT:
 				elif word not in self.dict["words"]:
 						self.dict["words"][word] = []
 
-	def __getAffixRule(self, flag, word):
-		numRules = self.aff.rules["numAffixRules"][flag]
-		i = 0
-		affix = self.aff.rules["affixRules"][flag + '-' + str(i)]
-
-		return affix
+		# New Line
+		print()
 
 	def __applyAffixRule(self, flags, word):
 		flagIndex = 0
-
 		affixes = self.aff.rules["affixRules"]
 		flag = flags[flagIndex]
 		affix = affixes[flag].next()
 
 		while flagIndex < len(flags):
-
-			if re.search(affix['regex'] + "$", word):
+			flag = flags[flagIndex]
+			
+			if affix["opt"] == "NOSUGGEST":
+				# Offensive Word.
+				pass # TODO: Do something with these words
+			elif re.search(affix['regex'] + "$", word):
 				# Base word
 				baseWord = word
 
-				# Index in affix key list (if used)
-				affixKeyIndex = -1
-
-				# Add-sub format
+				# Addition to prefixes and/or suffixes to indicate what needs to be added (Add-Sub format)
 				addSub = "+" if self.format == "addsub" else ''
 
-				# Get Possible prefixes and suffixes
+				# Get prefix and/or suffix if applicable
 				pfx = affix['affix'] + addSub if affix['opt'] == 'PFX' else ''
 				sfx = addSub + affix['affix'] if affix['opt'] == 'SFX' else ''
 
 
-				if affix['stripChars'] != None:
+				if affix['stripChars'] != '':
 					# Get position to check
 					pos = 0 if affix['opt'] == 'PFX' else len(word) - 1
 
 					# Check if char to strip exists
 					if baseWord[pos] == affix['stripChars']:
 						if self.format == "full":
-							# Substring if required ot remove char
+							# Start and end position for substring if characters are to removed
 							start = word.index(affix['stripChars']) if affix['opt'] == 'PFX' else 0
 							end = word.rindex(affix['stripChars']) if affix['opt'] == 'SFX' else 0
 
@@ -234,44 +254,54 @@ class DICT:
 							# There exists characters to remove from the end
 							baseWord = "-" + affix['stripChars']
 						elif self.format == "addsub" and affix['opt'] == 'PFX':
-							# There exists characters to remove from the start
+							# There exists characters to remove from the beginning
 							baseWord = affix['stripChars'] + "-"
 
-				elif self.format == "addsub": # There are no characters to strip from base word
+				elif self.format == "addsub":
+					# There is no need to add entire baseword using this format
 					baseWord = ""
 							
+				pfxKey = baseWord + pfx
+				sfxKey = baseWord + sfx
+
+				# Key generation option is set. There is no key to generate if there is no derivitives
 				if self.key:
-					# Add (pre|suf)fix to list of keys if it is not already in there
-					if (pfx + baseWord) != '' and (pfx + baseWord) not in self.keys:
-						self.keys.append(pfx + baseWord)
+					affixKeyIndex = -1
 
-					if (baseWord + sfx) != '' and (baseWord + sfx) not in self.keys:
-						self.keys.append(baseWord + sfx)
+					# Erase pfx and sfx as they are no longer needed since it is or will be stored in key list
+					pfx = sfx = ''
 
-					# Get affix key index
-					if pfx != '':
-						affixKeyIndex = self.keys.index(pfx + baseWord)
-						pfx = ''
-					elif sfx != '':
-						affixKeyIndex = self.keys.index(baseWord + sfx)
-						sfx = ''
+					# Add prefix to list of keys if it is not already in there
+					if pfxKey in self.aff.rules["keys"]:
+						# Key exists, get the index in key list
+						affixKeyIndex = self.aff.rules["keys"].index(pfxKey)
 
-					# Set number
-					baseWord = str(affixKeyIndex)
+					# Same with suffix
+					if sfxKey in self.aff.rules["keys"]:
+						# Key exists, get the index in key list
+						affixKeyIndex = self.aff.rules["keys"].index(sfxKey)
+
+					if affixKeyIndex != -1:
+						# Set number
+						baseWord = str(affixKeyIndex)
 
 				# Add base word to dictionary if it does not already exist
 				if word not in self.dict["words"]:
 					self.dict["words"][word] = []
 
-				# Add Prefixes and Suffixes
-				self.dict["words"][word].append(pfx + baseWord + sfx)
+				fullWord = pfx + baseWord + sfx
 
+				if fullWord not in self.dict["words"][word] and word != fullWord:
+					# Add Prefixes and Suffixes
+					self.dict["words"][word].append(fullWord)
+
+			# If there are more rules of flags to check, go the next rule
 			if affixes[flag].hasNext():
 				affix = affixes[flag].next()
-				print(affix)
-			else:
+			else: # Move on to the next flag if it exists
 				# Increment
 				flagIndex += 1
+				affixes[flag].reset()
 
 def main():
 	# Command Line arguments
