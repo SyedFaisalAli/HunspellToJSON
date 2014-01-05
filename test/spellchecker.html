@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>SpellChecker</title>
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+		}
+
+		ul, ol { list-style: none; }
+
+		body {
+			background: #EEE;
+			font: 14px sans-serif;
+			color: #333;
+		}
+
+		#wrap {
+			background: #FFF;
+			width: 400px;
+			margin: 50px auto;
+			border: #CCC solid 1px;
+			text-align: center;
+		}
+
+		#wrap .inner { padding: 25px 30px; }
+
+		#word {
+			border: #CCC solid 1px;
+			padding: 3px 2px;
+			border-radius: 5px;
+			outline: none;
+		}
+
+		#result-wrap {
+			text-align: left;
+			display: none;
+		}
+
+	</style>
+</head>
+<body>
+
+	<div id="wrap">
+		<div class="inner">
+			<p>Type a word in and then press Enter to check it.</p>
+			<input type="text" autocomplete="off" id="word" />
+			<div id="result-wrap">
+				<h2>Result</h2>
+				<div id="result"></div>
+			</div>
+		</div>
+	</div>
+
+<script src="spellchecker.js"></script>
+</body>
+</html>
