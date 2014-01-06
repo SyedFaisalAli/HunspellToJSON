@@ -1,5 +1,5 @@
 #!/usr/bin/python3.3
-import re, argparse, sys, json
+import re, argparse, os, json
 
 def convertFileToList(file):
 	lines = []
@@ -25,6 +25,13 @@ class AffixRule:
 		self.affix = affix
 		self.condition = '.' if condition == ',' else re.compile(condition + "$")
 
+	def generateAddSub(self):
+		# Prefix or Suffix
+		type = 'p:' if self.opt == "PFX" else 's:'
+		removeChar = '-' + self.charToStrip if self.charToStrip != '' else ''
+
+		return type + removeChar + '+' + self.affix
+
 	def meetsCondition(self, word):
 		if self.condition.search(word):
 			return True
@@ -32,19 +39,18 @@ class AffixRule:
 
 	def createDerivative(self, word):
 		result = None
-		if self.meetsCondition(word):
-			if self.charToStrip != '':
-				if self.opt == "PFX":
-					result = word[len(charToStrip):len(word)]
-					result = self.affix + result 
-				else: # SFX
-					result = result[0:len(word) - len(charToStrip)]
-					result = result + self.affix
-			else: # No characters to strip
-				if self.opt == "PFX":
-					result = self.affix + word
-				else: # SFX
-					result = word + self.affix
+		if self.charToStrip != '':
+			if self.opt == "PFX":
+				result = word[len(self.charToStrip):len(word)]
+				result = self.affix + result 
+			else: # SFX
+				result = word[0:len(word) - len(self.charToStrip)]
+				result = result + self.affix
+		else: # No characters to strip
+			if self.opt == "PFX":
+				result = self.affix + word
+			else: # SFX
+				result = word + self.affix
 
 		# None means word does not meet the set condition
 		return result
@@ -60,9 +66,9 @@ class CompoundRule:
 			if flag != '?' and flag != '*':
 				self.flags[flag] = []
 
-	def addFlagValues(self, entry, flags):
-		for flag in flags:
-			self.flags[flag] = entry
+	def addFlagValues(self, entry, flag):
+		if flag in self.flags:
+			self.flags[flag].append(entry)
 
 	def getRegex(self):
 		regex = ''
@@ -83,6 +89,7 @@ class AFF:
 		self.key = []
 		self.noSuggestFlag = None
 		self.onlyInCompoundFlag = None
+		self.compoundFlags = ''
 		self.minLengthInCompoundWords = 1
 
 		# Retrieve lines from aff
@@ -161,6 +168,11 @@ class AFF:
 
 					# Compounds
 					compound = parts[1]
+					
+					# Take note of compound flags
+					for c in compound:
+						if c != '*' and c != '?' and c not in self.compoundFlags:
+							self.compoundFlags += c
 
 					self.compoundRules.append(CompoundRule(compound))
 
@@ -169,6 +181,111 @@ class AFF:
 			# Next line
 			i += 1
 
+class DICT:
+	def __init__(self, file, aff, format, key, generateCompounds, generateReplacementTable, isPretty):
+		self.lines = convertFileToList(file)
+		self.aff = aff
+		self.words = {}
+		self.keys = []
+		self.format = format
+		self.key = key
+		self.compounds = generateCompounds 
+		self.regexCompounds = []
+		self.replacementTable = generateReplacementTable
+		self.pretty = isPretty
+
+		self.__parseDict()
+
+	def generateJSON(self, outFile):
+		output = {}
+		result = None
+
+		newLine = '\n' if self.pretty else ''
+		tab = '\t' if self.pretty else ''
+
+		# We do not want to indent the arrays, so we'll go with our own implementation
+		result = '{'
+		
+		if self.key:
+			result += newLine + tab + '"keys": ["' + '","'.join(self.keys) + '"],'
+
+		if self.compounds:
+			result += newLine + tab + '"compounds": ["' + '","'.join(self.regexCompounds) + '"],'
+
+		if self.replacementTable:
+			result += newLine + tab + '"repTable": ' + json.dumps(self.aff.replacementTable, separators=(',', ':'))
+
+		result += newLine + tab + '"words": {'
+
+		i = 0
+		for word in self.words:
+			val = self.words[word]
+			comma = ',' if i < len(self.words) - 1 else ''
+			result += newLine  + tab + tab + '"' + word + '": [' + ','.join(val) + ']' + comma
+			i += 1
+
+		result += newLine + tab + '}'
+		result += newLine + '}'
+
+		outFile.write(result)
+
+
+	def __parseDict(self):
+			i = 0
+			lines = self.lines
+
+			for line in lines:
+				line = line.split('/')
+				word = line[0]
+				flags = line[1] if len(line) > 1 else None
+
+				if flags != None:
+					# Derivatives possible
+					for flag in flags:
+						# Compound?
+						if flag in self.aff.compoundFlags or flag == self.aff.onlyInCompoundFlag:
+							for rule in self.aff.compoundRules:
+								rule.addFlagValues(word, flag)
+						else:
+							# No Suggest flags
+							if self.aff.noSuggestFlag == flag:
+								pass
+							else:
+								affixRuleEntries = self.aff.affixRules[flag]
+								# Get flag that meets condition
+								for i in range(len(affixRuleEntries)):
+									rule = affixRuleEntries[i]
+
+									if rule.meetsCondition(word):
+										# Add word to list if does not already exist
+										if word not in self.words:
+											self.words[word] = []
+
+										if self.format == "addsub":
+											addSub = rule.generateAddSub()
+
+											# Add to list of keys
+											if addSub not in self.keys:
+												self.keys.append(addSub)
+
+											# Check if key is to be generated
+											if self.key:
+												self.words[word].append(str(self.keys.index(addSub)))
+											else:
+												# Generate addsub next to base word
+												self.words[word].append(rule.generateAddSub())
+										else:
+											# Default, insert complete derivative word
+											self.words[word].append(rule.createDerivative(word))
+				else:
+					# No derivatives.
+					self.words[word] = []
+
+			# Create regular expression from compounds
+			for rule in self.aff.compoundRules:
+				# Add to list
+				self.regexCompounds.append(rule.getRegex())
+
 
 def main():
 	# Command Line arguments
@@ -176,6 +293,8 @@ def main():
 	parser.add_argument('-o', '--output', help='Output name of JSON')
 	parser.add_argument('-f', '--format', help="Format of the derivatives of each baseword (full|addsub) [Default=full]", default='full')
 	parser.add_argument('-k', '--key', action="store_true", help='If format is addsub, list of character removals and affixes can be generated to reduce redudant prefixes and suffixes among base words')
+	parser.add_argument('--noCompounds', action="store_false", help='If you do not want to generate the compound regular expressions.')
+	parser.add_argument('-r', '--replacementTable', action="store_true", help='If you want to add the Hunspell replacement table to generated JSON output')
 	parser.add_argument('-p', '--pretty', action="store_true", help='Output JSON format with formal indentation and line breaks')
 	parser.add_argument('dictionary', nargs='+', help='Name of dictionary (e.g. en_US) or individual .dic and .aff files.')
 	args = parser.parse_args()
@@ -203,16 +322,16 @@ def main():
 		# Open DIC file
 		try:
 			dictFile = open(dicPath, 'r', encoding='ISO8859-1')
-			#dict = DICT(dictFile, affRules, args.format, args.key)
+			dict = DICT(dictFile, affRules, args.format, args.key, args.noCompounds, args.replacementTable, args.pretty)
 
 			# Open output file
 			if args.output:
 				oFile = open(args.output, 'w')
 			else:
-				oFile = open(dicPath.split('.')[0] + '.json', 'w')
+				oFile = open(os.getcwd() + '/' + dicPath.split('.')[0] + '.json', 'w')
 
 			# Output json file
-			#dict.generateJSON(oFile, args.pretty)
+			dict.generateJSON(oFile)
 
 			oFile.close()
 
