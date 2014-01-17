@@ -99,7 +99,7 @@ class AFF:
 		self.no_suggest_flag = None
 		self.only_in_compound_flag = None
 		self.compound_flags = ''
-		self.min_length_compound_words = 1
+		self.min_len_compound_words = 1
 
 		# Retrieve lines from aff
 		self.lines = file_to_list(in_file)
@@ -111,7 +111,7 @@ class AFF:
 
 		while i < len(lines):
 			line = lines[i]
-			parts = re.split('\s+', line)
+			parts = re.split(r'\s+', line)
 
 			# Get header parts
 			opt = parts[0]
@@ -119,16 +119,16 @@ class AFF:
 
 			if opt == 'PFX' or opt == 'SFX':
 				combine = parts[2]
-				numEntries = int(parts[3])
+				num_entries = int(parts[3])
 				j = 0
 
 				# Affix entries
-				while j < numEntries:
+				while j < num_entries:
 					# Move to next line
 					i += 1
 
 					line = lines[i]
-					parts = re.split('\s+', line)
+					parts = re.split(r'\s+', line)
 					
 					# Entries
 					char_to_strip = parts[2]
@@ -144,14 +144,14 @@ class AFF:
 					# Increment number of lines under rule entry
 					j += 1
 			elif opt == "REP":
-				numEntries = int(parts[1])
+				num_entries = int(parts[1])
 				j = 0
 
-				while j < numEntries:
+				while j < num_entries:
 					i += 1
 
 					line = lines[i]
-					parts = re.split('\s+', line)
+					parts = re.split(r'\s+', line)
 
 					# Replacement Entries
 					self.rep_table[parts[1]] = parts[2]
@@ -160,28 +160,28 @@ class AFF:
 			elif opt == "NOSUGGEST":
 				self.no_suggest_flag = flag
 			elif opt == "COMPOUNDMIN":
-				self.minLengthInCompoundWords = int(flag)
+				self.min_len_compound_words = int(flag)
 			elif opt == "ONLYINCOMPOUND":
 				self.only_in_compound_flag = flag
 			elif opt == 'COMPOUNDRULE':
-				numEntries = int(parts[1])
+				num_entries = int(parts[1])
 				j = 0
 
 				# Compound rule entries
-				while j < numEntries:
+				while j < num_entries:
 					# Move to next line
 					i += 1
 
-					line = lines[i];
-					parts = re.split('\s+', line)
+					line = lines[i]
+					parts = re.split(r'\s+', line)
 
 					# Compounds
 					compound = parts[1]
 					
 					# Take note of compound flags
-					for c in compound:
-						if c != '*' and c != '?' and c not in self.compound_flags:
-							self.compound_flags += c
+					for comp in compound:
+						if comp != '*' and comp != '?' and comp not in self.compound_flags:
+							self.compound_flags += comp
 
 					self.compound_rules.append(CompoundRule(compound))
 
@@ -191,17 +191,18 @@ class AFF:
 			i += 1
 
 class DICT:
-	def __init__(self, dict_file, aff, format, key, generateCompounds, generateReplacementTable, isPretty):
+	def __init__(self, dict_file, aff, json_format, key, generate_compounds, generate_rep_table, is_pretty):
 		self.lines = file_to_list(dict_file)
 		self.aff = aff
 		self.words = {}
+		self.num_words = 0
 		self.keys = []
-		self.format = format
+		self.format = json_format
 		self.key = key
-		self.compounds = generateCompounds 
+		self.compounds = generate_compounds 
 		self.regex_compounds = []
-		self.rep_table = generateReplacementTable
-		self.pretty = isPretty
+		self.rep_table = generate_rep_table
+		self.pretty = is_pretty
 
 		self.__parse_dict()
 
@@ -213,6 +214,8 @@ class DICT:
 
 		# We do not want to indent the arrays, so we'll go with our own implementation
 		result = '{'
+
+		result += new_line + tab + '"numWords": ' + str(self.num_words) + ','
 		
 		if self.key:
 			result += new_line + tab + '"keys": ["' + '","'.join(self.keys) + '"],'
@@ -229,7 +232,7 @@ class DICT:
 		for word in self.words:
 			val = self.words[word]
 			comma = ',' if i < len(self.words) - 1 else ''
-			result += new_line  + tab + tab + '"' + word + '": [' + ','.join(val) + ']' + comma
+			result += new_line  + tab + tab + '"' + word + '":[' + ','.join(val) + ']' + comma
 			i += 1
 
 		result += new_line + tab + '}'
@@ -250,6 +253,9 @@ class DICT:
 			line = line.split('/')
 			word = line[0]
 			flags = line[1] if len(line) > 1 else None
+
+			# Base Word
+			self.num_words += 1
 
 			if flags != None:
 				# Derivatives possible
@@ -272,6 +278,9 @@ class DICT:
 									# Add word to list if does not already exist
 									if word not in self.words:
 										self.words[word] = []
+
+									# Derivatives
+									self.num_words += 1
 
 									if self.format == "addsub":
 										add_sub = rule.generate_add_sub()
@@ -343,12 +352,12 @@ def main():
 				if args.gzip:
 					out_file = gzip.open(args.output, 'wb')
 				else:
-					out_file = open(args.output, 'wb')
+					out_file = open(args.output, 'w')
 			else:
 				if args.gzip:
 					out_file = gzip.open(os.getcwd() + '/' + dict_path.split('.')[0] + '.json', 'wb')
 				else:
-					out_file = open(os.getcwd() + '/' + dict_path.split('.')[0] + '.json', 'wb')
+					out_file = open(os.getcwd() + '/' + dict_path.split('.')[0] + '.json', 'w')
 
 			# Output json file
 			dictionary.generate_json(out_file, args.gzip)
